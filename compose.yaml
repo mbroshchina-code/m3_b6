@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  # 1. СЕРВИС ВЕБ-ПРИЛОЖЕНИЯ (FastAPI)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bag-assistant-api:v1
+    container_name: bag-assistant-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # В environment кладём ТОЛЬКО то, что внутри docker-сети отличается от .env хоста.
+    # Внутри Docker-сети адрес базы — это DNS-имя соседнего контейнера "redis" (не localhost)!
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      # Указываем приложению адрес коллектора OpenTelemetry (используем gRPC порт 4317)
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+    # Добавляем phoenix в список жестких зависимостей, чтобы приложение не стартовало вслепую
+    
+    # Ждем полной готовности (service_healthy) кэш-слоя перед стартом API
+    depends_on:
+      redis:
+        condition: service_healthy
+      phoenix:
+        condition: service_healthy
+    # Healthcheck: опрашивает готовность ручки /ready через Python
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/ready', timeout=3).status == 200 else sys.exit(1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ⚡ 2. СЕРВИС КЭШ-СЛОЯ (Redis)
+  redis:
+    image: redis:7.4-alpine  # Явный тег версии по ТЗ, никакого :latest
+    container_name: bag-assistant-redis
+    restart: unless-stopped
+    # Без проброса ports наружу хоста — база защищена внутри изолированной bridge-сети Compose
+    volumes:
+      - redis_data:/data
+    # Проверка жизнеспособности Redis через внутреннюю утилиту redis-cli
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+# 3. СЕРВИС ОБСЕРВАБИЛИТИ (Arize Phoenix)
+  phoenix:
+    image: arizephoenix/phoenix:version-18.0.0
+    container_name: bag-assistant-phoenix
+    restart: unless-stopped
+    ports:
+      - "6006:6006"  # Веб-интерфейс для разработчика
+      - "4317:4317"  # Порт сбора метрик OpenTelemetry (OTLP gRPC)
+    volumes:
+      - phoenix_data:/data
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix_data:/data
+    # Healthcheck для Phoenix: проверяем доступность веб-порта 6006
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:6006/\")' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+# Объявляем постоянные разделы диска для сохранения данных кэша и трейсов
+volumes:
+  redis_data:
+  phoenix_data:
