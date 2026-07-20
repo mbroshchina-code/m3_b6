@@ -11,7 +11,7 @@ http://localhost:6006 ;
  - в docs/observability/ лежит скриншот одного трейса с подписью «что видно». В корне проекта лежат скриншоты трейсов в Phoenix
 
 ## Тесты 
-warning: The `tool.uv.dev-dependencies` field (used in `pyproject.toml`) is deprecated and will be removed in a future release; use `dependency-groups.dev` instead
+
 ======================================================================= test session starts ========================================================================
 platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
 rootdir: C:\Users\m.roschina\Desktop\Эвотор\мое\Обучение\bag_assistant
